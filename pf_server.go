@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"business"
 	"bytes"
 	"calldb"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -263,7 +266,7 @@ func server_init(d *Dispatcher, addr string) {
 		clientconn.Cn = &cn
 		g_client_map[clientaddr.String()] = clientconn
 		go handler_proc(d, &cn)
-
+		//fmt.Println(1112)
 	}
 }
 
@@ -283,20 +286,115 @@ func broadcast(data []byte) {
 	}
 }
 
+func read_ini_string(ini_file, node, key, default_value string) (string, error) {
+	fp, err := os.Open(ini_file)
+	if err != nil {
+		fmt.Printf("open ini file is error, err:%v\n", err)
+		return default_value, err
+	}
+	defer fp.Close()
+	node_tmp := fmt.Sprintf("[%s]", node)
+	//key_tmp := fmt.Sprintf("%s=", key)
+	//key_len := len(key_tmp)
+	rd := bufio.NewReader(fp)
+	for {
+		line, err := rd.ReadBytes('\n')
+		if err != nil { //遇到任何错误立即返回，并忽略 EOF 错误信息
+			if err == io.EOF {
+				return default_value, nil
+			}
+			return default_value, err
+		}
+		index := bytes.Index(line, []byte("#"))
+		if index != -1 {
+			//#是注释
+			line = line[:index]
+		}
+		line = bytes.TrimSpace(line)
+
+		//start := bytes.Index(line,[]byte('['))
+		//fmt.Printf("byte:%s,string:%s\n", string(line), node_tmp)
+		if bytes.Contains(line, []byte(node_tmp)) == true {
+			for {
+				key_line, err := rd.ReadBytes('\n')
+				if err != nil { //遇到任何错误立即返回，并忽略 EOF 错误信息
+					if err == io.EOF {
+						return default_value, nil
+					}
+					return default_value, err
+				}
+				key_line = bytes.TrimSpace(key_line)
+				key_index := bytes.Index(key_line, []byte("="))
+				//key_index := bytes.Index(key_line, []byte(key_tmp))
+				if key_index == -1 {
+					continue
+				}
+				//fmt.Println(string(bytes.TrimSpace(key_line[:key_index])))
+				if bytes.Contains(bytes.TrimSpace(key_line[:key_index]), []byte(key)) == true {
+					value := bytes.TrimSpace(key_line[key_index+1:])
+					return string(value), nil
+				}
+				//value := key_line[key_index+key_len:]
+				//return string(value), nil
+			}
+		} else {
+			continue
+		}
+
+	}
+}
+
+func read_ini_int(ini_file, node, key, default_value string) (int, error) {
+	tmp, err := read_ini_string(ini_file, node, key, default_value)
+	if err != nil {
+		fmt.Println(err)
+		tmp, _ := strconv.Atoi(default_value)
+		return tmp, err
+	}
+	value, err := strconv.Atoi(tmp)
+	return value, err
+}
+
 func main() {
 	//read close chan bool, value is false
 	//n := make(chan bool)
 	//close(n)
 	//w := <- n
 	//fmt.Println(w)
-
+	fmt.Println(runtime.GOOS)
+	ip, err := read_ini_string("./config/config.ini", "SERVER", "IP", "10.10.1.58")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(ip)
+	mysql_user, err := read_ini_string("./config/config.ini", "MYSQL", "USER", "admin")
+	if err != nil {
+		fmt.Println(err)
+	}
+	mysql_pwd, err := read_ini_string("./config/config.ini", "MYSQL", "PASSWORD", "admin")
+	if err != nil {
+		fmt.Println(err)
+	}
+	mysql_ip, err := read_ini_string("./config/config.ini", "MYSQL", "MYSQL_IP", "10.10.1.58")
+	if err != nil {
+		fmt.Println(err)
+	}
+	mysql_port, err := read_ini_int("./config/config.ini", "MYSQL", "MYSQL_PORT", "3306")
+	if err != nil {
+		fmt.Println(err)
+	}
+	db_name, err := read_ini_string("./config/config.ini", "MYSQL", "DB", "tj_selflot")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(mysql_user, mysql_pwd, mysql_port, db_name)
 	g_client_map = make(map[string]ClientConn)
 	g_client_slice = make([]string, 65500)
-
-	calldb.Mysql_init("admin", "admin", "192.168.0.101", "tj_selflot", 3306)
+	calldb.Mysql_init(mysql_user, mysql_pwd, mysql_ip, db_name, mysql_port)
+	//calldb.Mysql_init("admin", "admin", "192.168.0.101", "tj_selflot", 3306)
 	var d *Dispatcher
 	d = NewDispatcher(MaxWorkPool)
 	//go broadcast([]byte("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n123456abcd"))
-	server_init(d, "10.10.10.58:3000")
+	server_init(d, ":3000")
 
 }
